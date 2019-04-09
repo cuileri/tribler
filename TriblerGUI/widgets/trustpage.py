@@ -79,6 +79,14 @@ class TrustPlotMplCanvas(MplCanvas):
 
 class TrustAnimationCanvas(MplCanvas):
 
+    def __init__(self, parent=None, width=5, height=5, dpi=100):
+        super(TrustAnimationCanvas, self).__init__(parent, width, height, dpi)
+        self.graph = None  # Networkx graph
+        self.pos = None # Positions of nodes
+        self.old_pos = None  # Old positions of nodes (for animation)
+        self.framecount = 0 #
+        self.data_from_endpoint = 0 # For TEST ! To be deleted !
+
     def compute_initial_figure(self):
         self.axes.cla()
         self.axes.set_title("MBytes given/taken over time", color="#e0e0e0")
@@ -88,46 +96,54 @@ class TrustAnimationCanvas(MplCanvas):
         self.footline = self.ax.text(0, 0, "")
 
         self._dynamic_ax = self.figure.subplots()
-        self._timer = self.new_timer(
-            100, [(self.update_canvas, (), {})])
+        self._timer = self.new_timer(100, [(self.update_canvas, (), {})])
         self._timer.start()
-        x = range(2, 100, 3)
-        y = range(2, 100, 3)
-        self._dynamic_ax.plot(x, y, ".")
-        self.framecount = 0
-        self.data_from_endpoint = 0
-        self.graph = None
-        self.pos = None
 
-        self.draw()
+        self.pos_update_interval = 20
+        self.move_anim_interval = 20  # How many frames does it take to show a single move
+
+        # x = range(2, 100, 3)
+        # y = range(2, 100, 3)
+        # self._dynamic_ax.plot(x, y, ".")
+        # self.draw()
 
     def update_canvas(self):
         self._dynamic_ax.clear()
+        self._dynamic_ax.set_xlim(0, 1), self._dynamic_ax.set_xticks([])
+        self._dynamic_ax.set_ylim(0, 1), self._dynamic_ax.set_yticks([])
         x = range(2, 100, 3)
         y = [(datetime.datetime.now().microsecond % a) for a in x]
 
         self.framecount += 1
-        if self.framecount % 20 == 0:
+        self.framecount = self.framecount % self.pos_update_interval
+
+        if self.framecount == 0:
             self.axes.set_title("MBytes given/taken over time {}".format(self.data_from_endpoint))
             self.request_mgr = TriblerRequestManager()
             self.request_mgr.perform_request("trustview/test",
                                              self.received_data)
-
+        if self.framecount <= self.move_anim_interval and self.old_pos is not None:
             xpos = []
             ypos = []
             #self._dynamic_ax.plot(x, y)
             if self.graph is not None:
+                move_frame_fraction = self.framecount / (1.0 * self.move_anim_interval)
                 for n in self.graph.nodes():
-                    x = self.pos
-                    xpos.append(self.pos[str(n)][0])
-                    ypos.append(self.pos[str(n)][1])
+                    xpos.append(((self.pos[str(n)][0] - self.old_pos[str(n)][0])
+                                 * move_frame_fraction)
+                                + self.old_pos[str(n)][0])
+                    ypos.append(((self.pos[str(n)][1] - self.old_pos[str(n)][1])
+                                 * move_frame_fraction)
+                                + self.old_pos[str(n)][1])
             self._dynamic_ax.scatter(xpos, ypos)
             self._dynamic_ax.figure.canvas.draw()
 
     def received_data(self, data):
         self.data_from_endpoint = data['test_data']
         self.graph = nx.node_link_graph(data['test_graph'])
+        self.old_pos = None if self.pos is None else dict(self.pos)
         self.pos = data['positions']
+
 
 class TrustPage(QWidget):
     """
