@@ -2,6 +2,7 @@ from __future__ import absolute_import
 
 import datetime
 import gc
+import networkx as nx
 
 from PyQt5.QtWidgets import QSizePolicy
 from PyQt5.QtWidgets import QWidget
@@ -76,6 +77,57 @@ class TrustPlotMplCanvas(MplCanvas):
 
         self.draw()
 
+class TrustAnimationCanvas(MplCanvas):
+
+    def compute_initial_figure(self):
+        self.axes.cla()
+        self.axes.set_title("MBytes given/taken over time", color="#e0e0e0")
+        self.ax = self.figure.add_axes([0.025, 0.1, 1, 1], frameon=False)
+        self.ax.set_xlim(0, 1), self.ax.set_xticks([])
+        self.ax.set_ylim(0, 1), self.ax.set_yticks([])
+        self.footline = self.ax.text(0, 0, "")
+
+        self._dynamic_ax = self.figure.subplots()
+        self._timer = self.new_timer(
+            100, [(self.update_canvas, (), {})])
+        self._timer.start()
+        x = range(2, 100, 3)
+        y = range(2, 100, 3)
+        self._dynamic_ax.plot(x, y, ".")
+        self.framecount = 0
+        self.data_from_endpoint = 0
+        self.graph = None
+        self.pos = None
+
+        self.draw()
+
+    def update_canvas(self):
+        self._dynamic_ax.clear()
+        x = range(2, 100, 3)
+        y = [(datetime.datetime.now().microsecond % a) for a in x]
+
+        self.framecount += 1
+        if self.framecount % 20 == 0:
+            self.axes.set_title("MBytes given/taken over time {}".format(self.data_from_endpoint))
+            self.request_mgr = TriblerRequestManager()
+            self.request_mgr.perform_request("trustview/test",
+                                             self.received_data)
+
+            xpos = []
+            ypos = []
+            #self._dynamic_ax.plot(x, y)
+            if self.graph is not None:
+                for n in self.graph.nodes():
+                    x = self.pos
+                    xpos.append(self.pos[str(n)][0])
+                    ypos.append(self.pos[str(n)][1])
+            self._dynamic_ax.scatter(xpos, ypos)
+            self._dynamic_ax.figure.canvas.draw()
+
+    def received_data(self, data):
+        self.data_from_endpoint = data['test_data']
+        self.graph = nx.node_link_graph(data['test_graph'])
+        self.pos = data['positions']
 
 class TrustPage(QWidget):
     """
@@ -97,7 +149,7 @@ class TrustPage(QWidget):
     def initialize_trust_page(self):
         vlayout = self.window().plot_widget.layout()
         if vlayout.isEmpty():
-            self.trust_plot = TrustPlotMplCanvas(self.window().plot_widget, dpi=100)
+            self.trust_plot = TrustAnimationCanvas(self.window().plot_widget, dpi=100)
             vlayout.addWidget(self.trust_plot)
 
         self.window().trade_button.clicked.connect(self.on_trade_button_clicked)
